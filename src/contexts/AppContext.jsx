@@ -39,7 +39,13 @@ export const AppProvider = ({ children }) => {
   }, []);
 
   const addChatMessage = (message) => {
-    setChatMessages((prevMessages) => [...prevMessages, message]);
+    setChatMessages((prevMessages) => {
+      // If this message is meant to replace another one, filter out the one being replaced
+      if (message.replaces) {
+        return [...prevMessages.filter(msg => msg.id !== message.replaces), message];
+      }
+      return [...prevMessages, message];
+    });
   };
 
   const addUploadedFile = (file) => {
@@ -79,6 +85,18 @@ export const AppProvider = ({ children }) => {
     setAssignments(updatedAssignments);
   };
 
+  // Clear chat history
+  const clearChat = () => {
+    setChatMessages([
+      { id: Date.now(), sender: 'agent', content: 'Let\'s start fresh! How can I help you create an assignment today?' }
+    ]);
+  };
+
+  // Remove file from uploaded files
+  const removeUploadedFile = (fileId) => {
+    setUploadedFiles(prevFiles => prevFiles.filter(file => file.id !== fileId));
+  };
+
   return (
     <AppContext.Provider
       value={{
@@ -90,10 +108,13 @@ export const AppProvider = ({ children }) => {
         isLoading,
         addChatMessage,
         addUploadedFile,
+        removeUploadedFile,
         updateCurrentAssignment,
         saveAssignment,
         postAssignment,
-        setCurrentAssignment
+        setCurrentAssignment,
+        setUploadedFiles,
+        clearChat
       }}
     >
       {children}

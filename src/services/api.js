@@ -1,6 +1,10 @@
 import { mockAssignments, mockClasses } from './mockData';
+import axios from 'axios';
 
-// Simulating API delay
+// API Base URL - adjust if needed
+const API_BASE_URL = 'http://localhost:8080/teacher/v1';
+
+// Simulating API delay for mock functions
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
 // Mock fetch assignments
@@ -15,8 +19,102 @@ export const fetchClasses = async () => {
   return [...mockClasses];
 };
 
-// Mock AI agent message
+/**
+ * Send message and files to the AI agent
+ * Uses the real backend API if files are present, otherwise falls back to mock responses
+ */
 export const sendMessageToAgent = async (message, uploadedFiles) => {
+  // Check if we have PDF files to send to the real backend
+  const pdfFile = uploadedFiles.find(file => file.type.includes('pdf'));
+  
+  // If we have a PDF file, use the real backend API
+  if (pdfFile) {
+    try {
+      // Create form data for multipart/form-data request
+      const formData = new FormData();
+      
+      // Add the student ID (this could be dynamic based on your app state)
+      formData.append('studentId', '12345');
+      
+      // Add the PDF file
+      formData.append('pdf', pdfFile.file);
+      
+      // Add message as instructions if provided
+      if (message && message.trim()) {
+        formData.append('instructions', message);
+      }
+
+      console.log("Sending request to backend...");
+      
+      // Send request to backend
+      const response = await axios.post(
+        `${API_BASE_URL}/create/solo`,
+        formData,
+        {
+          headers: {
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+
+      // Process backend response - this is where the issue might be
+      console.log("Backend response:", response);
+      console.log("Response data:", response.data);
+      
+      // Check if response.data is a string (possibly JSON)
+      let parsedData = response.data;
+      if (typeof response.data === 'string') {
+        try {
+          parsedData = JSON.parse(response.data);
+          console.log("Parsed JSON data:", parsedData);
+        } catch (parseError) {
+          console.log("Response is a string but not valid JSON");
+        }
+      }
+      
+      // Format the response to match what the Chat component expects
+      return {
+        id: Date.now(),
+        sender: 'agent',
+        content: parsedData.description || 'Assignment created successfully!',
+        assignment: {
+          id: parsedData.id || Date.now().toString(),
+          title: 'Generated Assignment',
+          content: formatAssignmentContent(parsedData),
+          class_id: '',
+          status: 'draft',
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        }
+      };
+    } catch (error) {
+      console.error('Error sending message to agent:', error);
+      
+      // Log more details about the error
+      if (error.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        console.error('Error response data:', error.response.data);
+        console.error('Error response status:', error.response.status);
+        console.error('Error response headers:', error.response.headers);
+      } else if (error.request) {
+        // The request was made but no response was received
+        console.error('Error request:', error.request);
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        console.error('Error message:', error.message);
+      }
+      
+      // Fall back to a generic error message
+      return {
+        id: Date.now(),
+        sender: 'agent',
+        content: `Failed to process your request. Error: ${error.message || 'Unknown error'}`
+      };
+    }
+  }
+  
+  // If no PDF or there was an error, fall back to mock responses
   await delay(1200);
   
   // Simple response logic based on message content
@@ -56,10 +154,54 @@ export const sendMessageToAgent = async (message, uploadedFiles) => {
     return {
       id: Date.now(),
       sender: 'agent',
-      content: 'I\'m here to help you create assignments. Could you provide more details about what subject and topic you\'d like to focus on?'
+      content: 'I\'m here to help you create assignments. Could you provide more details about what subject and topic you\'d like to focus on? Uploading a PDF teaching material will help me generate better assignments.'
     };
   }
 };
+
+/**
+ * Format the assignment content based on the API response
+ */
+function formatAssignmentContent(responseData) {
+  // Handle both object and string format for responseData
+  let description, code, testCases, sources;
+  
+  if (typeof responseData === 'string') {
+    try {
+      const parsed = JSON.parse(responseData);
+      description = parsed.description;
+      code = parsed.code;
+      testCases = parsed.testCases;
+      sources = parsed.sources;
+    } catch (e) {
+      description = responseData;
+    }
+  } else {
+    description = responseData.description;
+    code = responseData.code;
+    testCases = responseData.testCases;
+    sources = responseData.sources;
+  }
+
+  return `# ${description || 'Generated Assignment'}
+
+## Description
+${description || 'No description provided.'}
+
+${code ? `## Coding Task
+\`\`\`python
+${code}
+\`\`\`` : ''}
+
+${testCases ? `## Test Cases
+\`\`\`python
+${testCases}
+\`\`\`` : ''}
+
+${sources ? `## Sources
+${sources}` : ''}
+`;
+}
 
 // Mock save assignment
 export const saveAssignmentToApi = async (assignment) => {

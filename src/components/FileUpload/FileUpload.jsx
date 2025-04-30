@@ -5,19 +5,14 @@ import {
   DialogTitle, 
   DialogContent, 
   DialogActions,
-  List,
-  ListItem,
-  ListItemText,
-  ListItemIcon,
   Typography,
-  IconButton,
   Box,
-  Chip
+  Chip,
+  Alert
 } from '@mui/material';
 import { 
   Upload as UploadIcon, 
   Delete as DeleteIcon,
-  FileCopy as FileIcon,
   PictureAsPdf as PdfIcon,
   Description as DocIcon,
   InsertDriveFile as GenericFileIcon
@@ -26,57 +21,91 @@ import AppContext from '../../contexts/AppContext';
 
 const FileUpload = () => {
   const [open, setOpen] = useState(false);
-  const { uploadedFiles, addUploadedFile, addChatMessage } = useContext(AppContext);
-  
+  const [error, setError] = useState('');
+  const { uploadedFiles, addChatMessage, addUploadedFile, setUploadedFiles } = useContext(AppContext);
+
+  // Local wrapper function to validate and add the file
+  const handleAddUploadedFile = (file) => {
+    const fileExists = uploadedFiles.some(f => f.name === file.name);
+    if (fileExists) {
+      setError(`File ${file.name} already exists.`);
+      return;
+    }
+
+    // If a function exists in context, use it, otherwise fallback to direct state update
+    if (addUploadedFile) {
+      addUploadedFile(file);
+    } else {
+      setUploadedFiles([...uploadedFiles, file]);
+    }
+  };
+
   const handleOpen = () => {
     setOpen(true);
+    setError('');
   };
-  
+
   const handleClose = () => {
     setOpen(false);
   };
-  
+
   const handleFileChange = (event) => {
     const files = Array.from(event.target.files);
-    
-    files.forEach(file => {
-      // Create a new file object with additional metadata
-      const fileObject = {
-        id: Date.now() + Math.random().toString(36).substring(2, 10),
-        name: file.name,
-        type: file.type,
-        size: file.size,
-        file,
-        uploadedAt: new Date().toISOString()
-      };
-      
-      addUploadedFile(fileObject);
-    });
-    
-    // If files were uploaded, add a system message
-    if (files.length > 0) {
-      addChatMessage({
-        id: Date.now(),
-        sender: 'system',
-        content: `You uploaded ${files.length} file${files.length > 1 ? 's' : ''}.`
-      });
+    setError('');
+
+    if (files.length === 0) {
+      return;
     }
-    
+
+    // Check if there's at least one PDF file
+    const pdfFiles = files.filter(file => file.type === 'application/pdf');
+
+    if (pdfFiles.length === 0) {
+      setError('Please upload at least one PDF file. The backend requires PDF format.');
+      return;
+    }
+
+    // Only use the first PDF file
+    const selectedPdf = pdfFiles[0];
+
+    const fileObject = {
+      id: Date.now() + Math.random().toString(36).substring(2, 10),
+      name: selectedPdf.name,
+      type: selectedPdf.type,
+      size: selectedPdf.size,
+      file: selectedPdf,
+      uploadedAt: new Date().toISOString()
+    };
+
+    // Clear any previous PDFs since we only want one at a time for the API
+    const nonPdfFiles = uploadedFiles.filter(file => !file.type.includes('pdf'));
+    if (setUploadedFiles) {
+      setUploadedFiles([...nonPdfFiles, fileObject]);
+    } else {
+      handleAddUploadedFile(fileObject);
+    }
+
+    addChatMessage({
+      id: Date.now(),
+      sender: 'system',
+      content: `You uploaded ${selectedPdf.name}. I'll use this material to create an assignment.`
+    });
+
     handleClose();
   };
-  
+
   const getFileIcon = (fileType) => {
     if (fileType.includes('pdf')) {
       return <PdfIcon />;
     } else if (fileType.includes('word') || fileType.includes('document')) {
       return <DocIcon />;
-    } else if (fileType.includes('image')) {
-      return <FileIcon />;
     } else {
       return <GenericFileIcon />;
     }
   };
-  
+
+  const hasPdf = uploadedFiles.some(file => file.type.includes('pdf'));
+
   return (
     <>
       <Button
@@ -85,28 +114,33 @@ const FileUpload = () => {
         startIcon={<UploadIcon />}
         onClick={handleOpen}
       >
-        Upload Materials
+        {hasPdf ? 'Change PDF' : 'Upload PDF'}
       </Button>
-      
+
       <Dialog open={open} onClose={handleClose}>
-        <DialogTitle>Upload Teaching Materials</DialogTitle>
+        <DialogTitle>Upload Teaching Material</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="textSecondary" gutterBottom>
-            Upload lesson plans, readings, or other materials to help the AI create relevant assignments.
+            Upload a PDF of your teaching material to help the AI create relevant assignments.
           </Typography>
-          
+
+          {error && (
+            <Alert severity="error" sx={{ mt: 2, mb: 2 }}>
+              {error}
+            </Alert>
+          )}
+
           <Box sx={{ mt: 2 }}>
             <input
-              accept="application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,image/*"
+              accept="application/pdf"
               style={{ display: 'none' }}
               id="file-upload-button"
               type="file"
-              multiple
               onChange={handleFileChange}
             />
             <label htmlFor="file-upload-button">
               <Button variant="contained" component="span">
-                Choose Files
+                Choose PDF File
               </Button>
             </label>
           </Box>
@@ -117,7 +151,7 @@ const FileUpload = () => {
           </Button>
         </DialogActions>
       </Dialog>
-      
+
       {uploadedFiles.length > 0 && (
         <Box sx={{ mt: 2 }}>
           <Typography variant="subtitle2" gutterBottom>

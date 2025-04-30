@@ -12,6 +12,9 @@ import Chat from './components/Chat/Chat';
 import StudDashboard from './components/Dashboard/StudDashboard';
 import AnswerAssignment from './components/AssignmentEditor/AssisgmentAnswer';
 
+// Import CSS files
+import './styles/Chat.css';
+
 function App() {
   const location = useLocation();
   const isStudentRoute = location.pathname.startsWith('/student') || location.pathname.startsWith('/answer');
@@ -35,10 +38,16 @@ function App() {
           {/* Teacher routes */}
           <Route path="/" element={<Dashboard />} />
           <Route path="/create" element={
-            <>
-              <Chat />
-              <AssignmentEditor />
-            </>
+            <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', p: 2 }}>
+              <Box sx={{ flex: '1', display: 'flex', gap: 3 }}>
+                <Box sx={{ flex: '1', maxWidth: '50%' }}>
+                  <Chat />
+                </Box>
+                <Box sx={{ flex: '1' }}>
+                  <AssignmentEditor />
+                </Box>
+              </Box>
+            </Box>
           } />
           <Route path="/edit/:id" element={<AssignmentEditor />} />
 
