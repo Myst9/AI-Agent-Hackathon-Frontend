@@ -1,222 +1,257 @@
-import { mockAssignments, mockClasses } from './mockData';
+// src/services/api.js
+import { mockAssignments, mockClasses } from './mockData'; // Assuming mockData.js exists
 import axios from 'axios';
 
 // API Base URL - adjust if needed
+// NOTE: Ensure this points to your actual backend when deployed
 const API_BASE_URL = 'http://localhost:8080/teacher/v1';
 
 // Simulating API delay for mock functions
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+// --- Mock Data Simulation (Modify directly for persistence simulation) ---
+// Using let allows us to reassign the array when adding/updating items
+let currentMockAssignments = [...mockAssignments];
+let currentMockClasses = [...mockClasses];
+
 // Mock fetch assignments
 export const fetchAssignments = async () => {
   await delay(800);
-  return [...mockAssignments];
+  return [...currentMockAssignments]; // Return a copy
 };
 
 // Mock fetch classes
 export const fetchClasses = async () => {
   await delay(600);
-  return [...mockClasses];
+  return [...currentMockClasses]; // Return a copy
 };
 
 /**
- * Send message and files to the AI agent
- * Uses the real backend API if files are present, otherwise falls back to mock responses
+ * Mock save assignment API call
+ * Simulates saving/updating an assignment in the backend.
+ * If assignment has no ID, assigns a new one and adds it.
+ * If assignment has an ID, updates the existing one.
+ */
+export const saveAssignmentToApi = async (assignment) => {
+  await delay(1000); // Simulate network delay
+  
+  const timestamp = new Date().toISOString();
+  let savedAssignment;
+
+  if (!assignment.id) {
+    // New assignment - assign a unique mock ID (using timestamp for simplicity)
+    savedAssignment = {
+      ...assignment,
+      id: Date.now().toString(), // Use Date.now as a simple unique ID
+      status: assignment.status || 'draft', // Use status from input or default to draft
+      createdAt: timestamp,
+      updatedAt: timestamp
+    };
+    currentMockAssignments.push(savedAssignment);
+  } else {
+    // Existing assignment - find and update
+    const index = currentMockAssignments.findIndex(a => a.id === assignment.id);
+    if (index !== -1) {
+      savedAssignment = {
+        ...currentMockAssignments[index], // Keep existing fields like createdAt, postedAt etc.
+        ...assignment, // Apply updates (title, content, class_id, status etc.)
+        updatedAt: timestamp
+      };
+      currentMockAssignments[index] = savedAssignment;
+    } else {
+      // This case indicates a potential data sync issue, but for the mock, 
+      // let's just log a warning and return the assignment we were given.
+      console.warn(`Mock saveAssignmentToApi: Attempted to save non-existent assignment with ID: ${assignment.id}`);
+      return assignment; 
+    }
+  }
+
+  console.log('Mock saved assignment:', savedAssignment);
+  return savedAssignment;
+};
+
+/**
+ * Mock post assignment API call
+ * Simulates changing assignment status to 'posted' and setting postedAt.
+ */
+export const postAssignmentToApi = async (assignmentId) => {
+  await delay(1200); // Simulate network delay
+
+  const postedAtTimestamp = new Date().toISOString();
+  let postedAssignment = null;
+
+  currentMockAssignments = currentMockAssignments.map(a => {
+    if (a.id === assignmentId) {
+      postedAssignment = { 
+        ...a, 
+        status: 'posted', 
+        postedAt: postedAtTimestamp,
+        updatedAt: new Date().toISOString() // Also update updatedAt
+      };
+      return postedAssignment;
+    }
+    return a;
+  });
+
+  console.log('Mock posted assignment with ID:', assignmentId, postedAssignment);
+  // Return the updated assignment object, or null if the ID wasn't found
+  return postedAssignment || currentMockAssignments.find(a => a.id === assignmentId) || null;
+};
+
+
+/**
+ * Send message and files to the AI agent to create an assignment.
+ * Calls the backend API with available inputs (message, PDF, or both).
  */
 export const sendMessageToAgent = async (message, uploadedFiles) => {
-  // Check if we have PDF files to send to the real backend
+  // Check if we have PDF files to send
   const pdfFile = uploadedFiles.find(file => file.type.includes('pdf'));
   
-  // If we have a PDF file, use the real backend API
-  if (pdfFile) {
-    try {
-      // Create form data for multipart/form-data request
-      const formData = new FormData();
-      
-      // Add the student ID (this could be dynamic based on your app state)
-      formData.append('studentId', '12345');
-      
-      // Add the PDF file
-      formData.append('pdf', pdfFile.file);
-      
-      // Add message as instructions if provided
-      if (message && message.trim()) {
-        formData.append('instructions', message);
-      }
-
-      console.log("Sending request to backend...");
-      
-      // Send request to backend
-      const response = await axios.post(
-        `${API_BASE_URL}/create/solo`,
-        formData,
-        {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        }
-      );
-
-      // Process backend response - this is where the issue might be
-      console.log("Backend response:", response);
-      console.log("Response data:", response.data);
-      
-      // Check if response.data is a string (possibly JSON)
-      let parsedData = response.data;
-      if (typeof response.data === 'string') {
-        try {
-          parsedData = JSON.parse(response.data);
-          console.log("Parsed JSON data:", parsedData);
-        } catch (parseError) {
-          console.log("Response is a string but not valid JSON");
-        }
-      }
-      
-      // Format the response to match what the Chat component expects
+  // If neither message nor PDF, don't call the API (handled in Chat component)
+  if (!message.trim() && !pdfFile) {
+      // This case should theoretically not be reached if Chat's validation works,
+      // but including a defensive check.
+    console.warn("sendMessageToAgent called with empty message and no PDF.");
+      // Return a dummy response or throw an error as appropriate
       return {
-        id: Date.now(),
-        sender: 'agent',
-        content: parsedData.description || 'Assignment created successfully!',
-        assignment: {
-          id: parsedData.id || Date.now().toString(),
-          title: 'Generated Assignment',
-          content: formatAssignmentContent(parsedData),
-          class_id: '',
-          status: 'draft',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString()
-        }
+          id: Date.now(),
+          sender: 'agent',
+          content: 'Please provide a message or upload a PDF to create an assignment.'
       };
-    } catch (error) {
-      console.error('Error sending message to agent:', error);
-      
-      // Log more details about the error
-      if (error.response) {
-        // The request was made and the server responded with a status code
-        // that falls out of the range of 2xx
-        console.error('Error response data:', error.response.data);
-        console.error('Error response status:', error.response.status);
-        console.error('Error response headers:', error.response.headers);
-      } else if (error.request) {
-        // The request was made but no response was received
-        console.error('Error request:', error.request);
-      } else {
-        // Something happened in setting up the request that triggered an Error
-        console.error('Error message:', error.message);
-      }
-      
-      // Fall back to a generic error message
-      return {
-        id: Date.now(),
-        sender: 'agent',
-        content: `Failed to process your request. Error: ${error.message || 'Unknown error'}`
-      };
+  }
+
+  try {
+    const formData = new FormData();
+    
+    // TODO: Replace '12345' with the actual student ID from app state/auth
+    // Ensure your backend uses 'studentId' or change this field name accordingly
+    formData.append('studentId', '12345'); 
+    
+    // Add the message as instructions if provided
+    // Ensure your backend expects 'instructions' or change this field name (e.g., 'topic')
+    if (message && message.trim()) {
+      formData.append('topic', message.trim());
     }
-  }
-  
-  // If no PDF or there was an error, fall back to mock responses
-  await delay(1200);
-  
-  // Simple response logic based on message content
-  if (message.toLowerCase().includes('math')) {
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      content: 'I can help you create a math assignment. Would you like to focus on algebra, geometry, or calculus?'
-    };
-  } 
-  else if (message.toLowerCase().includes('science')) {
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      content: 'Great! I can help with a science assignment. Let me know if you want to focus on biology, chemistry, or physics.'
-    };
-  }
-  else if (message.toLowerCase().includes('generate') || message.toLowerCase().includes('create')) {
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      content: 'I\'ve created a sample assignment based on your requirements. You can now edit it in the assignment editor below.',
-      assignment: {
-        title: 'Sample Assignment',
-        content: `# Sample Assignment\n\n## Introduction\nThis is a sample assignment generated by the AI assistant. You can edit this content as needed.\n\n## Tasks\n1. First task description\n2. Second task description\n3. Third task description\n\n## Requirements\n- Requirement 1\n- Requirement 2\n- Requirement 3\n\n## Submission Guidelines\nSubmit your work by the due date in the specified format.`
+
+    // Add the PDF file if present (ensure it's the actual File object)
+    // Ensure your backend expects the file under the name 'pdf'
+    if (pdfFile) {
+      formData.append('pdf', pdfFile.file); 
+    }
+
+    console.log("Sending request to backend for assignment creation...");
+    // The Chat component is expecting an 'assignment' property in the response
+    // if an assignment was successfully created.
+    const response = await axios.post(
+      `${API_BASE_URL}/create/solo`,
+      formData, // Send the formData which contains message, PDF, or both
+      {
+        headers: {
+          'Content-Type': 'multipart/form-data'
+        }
       }
-    };
-  }
-  else if (uploadedFiles && uploadedFiles.length > 0) {
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      content: `I've analyzed the uploaded material${uploadedFiles.length > 1 ? 's' : ''}. What type of assignment would you like to create based on ${uploadedFiles.length > 1 ? 'these materials' : 'this material'}?`
-    };
-  }
-  else {
-    return {
-      id: Date.now(),
-      sender: 'agent',
-      content: 'I\'m here to help you create assignments. Could you provide more details about what subject and topic you\'d like to focus on? Uploading a PDF teaching material will help me generate better assignments.'
-    };
+    );
+
+    // Process backend response
+    console.log("Backend response:", response);
+    
+    // Assuming backend responds with JSON containing assignment details OR just a message
+    const backendData = response.data;
+
+    // Determine the content to display in the chat
+    const chatContent = backendData.description || backendData.message || 'Processing complete.';
+
+    // If the backend returned assignment details, include them in the response for the frontend
+    // Assuming backend sends back an object with 'id', 'description', 'code', etc.
+    if (backendData && backendData.id) { 
+      return {
+        id: Date.now(),
+        sender: 'agent',
+        content: chatContent, // Message to display in chat
+        assignment: {
+          id: backendData.id, // Use the ID from the backend response
+          title: backendData.title || 'Generated Assignment', // Use title from backend if available, or a default
+          content: formatAssignmentContent(backendData), // Format content from backend data
+          class_id: '', // Class needs to be selected by user later
+          status: 'draft', 
+          // createdAt and updatedAt will be set during the save process in AppContext
+        }
+      };
+    } else {
+        // If backend didn't return a structured assignment object, just return the message
+        // This happens for text-only inputs that might trigger a conversational response
+        // or if the backend API has different response structures.
+        console.log("Backend did not return a full assignment object.");
+        return {
+            id: Date.now(),
+            sender: 'agent',
+            content: chatContent
+        };
+    }
+
+  } catch (error) {
+    console.error('Error sending message to agent:', error);
+    
+    // Log more details about the error
+    if (error.response) {
+      console.error('Error response data:', error.response.data);
+      console.error('Error response status:', error.response.status);
+      console.error('Error response headers:', error.response.headers);
+      // Extract a more specific error message from the response if available
+      const backendErrorMessage = typeof error.response.data === 'object' 
+        ? error.response.data.message || JSON.stringify(error.response.data)
+        : error.response.data;
+      throw new Error(`API Error: ${backendErrorMessage || `Status ${error.response.status}`}`);
+    } else if (error.request) {
+      console.error('Error request:', error.request);
+      throw new Error('Network Error: No response from server.');
+    } else {
+      console.error('Error message:', error.message);
+      throw new Error(`Request setup Error: ${error.message}`);
+    }
   }
 };
 
 /**
- * Format the assignment content based on the API response
+ * Format the assignment content based on the API response structure.
+ * Assumes responseData is an object potentially containing description, code, testCases, sources, title.
  */
 function formatAssignmentContent(responseData) {
-  // Handle both object and string format for responseData
-  let description, code, testCases, sources;
-  
-  if (typeof responseData === 'string') {
-    try {
-      const parsed = JSON.parse(responseData);
-      description = parsed.description;
-      code = parsed.code;
-      testCases = parsed.testCases;
-      sources = parsed.sources;
-    } catch (e) {
-      description = responseData;
-    }
-  } else {
-    description = responseData.description;
-    code = responseData.code;
-    testCases = responseData.testCases;
-    sources = responseData.sources;
+  const { description, code, testCases, sources, title } = responseData || {}; // Destructure safely
+
+  // Build the content string using Markdown
+  let content = `# ${title || description || 'Generated Assignment'}\n\n`;
+
+  if (description && title !== description) { // Avoid repeating description if it's the same as title
+    content += `## Description\n${description}\n\n`;
   }
 
-  return `# ${description || 'Generated Assignment'}
+  if (code) {
+    content += `## Coding Task\n\`\`\`python\n${code}\n\`\`\`\n\n`;
+  }
 
-## Description
-${description || 'No description provided.'}
+  if (testCases) {
+    // Assuming testCases is a string representation of code/data
+    content += `## Test Cases\n\`\`\`python\n${testCases}\n\`\`\`\n\n`;
+  }
 
-${code ? `## Coding Task
-\`\`\`python
-${code}
-\`\`\`` : ''}
+  if (sources) {
+    // Assuming sources is a string or array joined by newlines
+    content += `## Sources\n${Array.isArray(sources) ? sources.join('\n') : sources}\n\n`;
+  }
 
-${testCases ? `## Test Cases
-\`\`\`python
-${testCases}
-\`\`\`` : ''}
+  // Add a placeholder if nothing specific was generated but an ID was returned
+  if (!description && !code && !testCases && !sources && !title) {
+    content += 'The AI generated an assignment structure but did not return specific content details.';
+  }
+  
+  // Clean up extra newlines at the end
+  content = content.trim();
 
-${sources ? `## Sources
-${sources}` : ''}
-`;
+ return content;
 }
 
-// Mock save assignment
-export const saveAssignmentToApi = async (assignment) => {
-  await delay(1000);
-  return {
-    ...assignment,
-    updatedAt: new Date().toISOString()
-  };
-};
-
-// Mock post assignment
-export const postAssignmentToApi = async (assignmentId) => {
-  await delay(1200);
-  return {
-    success: true,
-    postedAt: new Date().toISOString()
-  };
-};
+// Note: The mock save/post functions (saveAssignmentToApi, postAssignmentToApi) are defined above
+// and modify the currentMockAssignments array directly to simulate persistence.
+// When you integrate a real backend, you will replace these functions with
+// actual API calls using axios, and they will update the backend database instead.
